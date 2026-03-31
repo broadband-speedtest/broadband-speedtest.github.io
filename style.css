@@ -81,7 +81,14 @@
   padding: 0;
   box-sizing: border-box;
 }
-
+html{
+  height: 100%;
+}
+html #app{
+  min-height: 100%;
+   -ms-flex-direction: column;
+  flex-direction: column
+}
 body {
   font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   background: var(--bg-primary);
@@ -209,6 +216,12 @@ svg.icon{
 
 /* Main Content */
 .main {
+  -ms-flex: 1 1 auto;
+  flex: 1 1 auto;
+  display: -ms-flexbox;
+  display: flex;
+  -ms-flex-align: center;
+  align-items: center;
   padding: 2rem 0;
 }
 
