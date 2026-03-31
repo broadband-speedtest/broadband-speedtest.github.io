@@ -2,7 +2,7 @@
   "name": "Broadband SpeedTest - Internet Speed Test",
   "short_name": "SpeedTest",
   "description": "Test your internet speed - Download, Upload, Ping & Jitter measurements",
-  "version": "2025.08.17",
+  "version": "2026.03.31",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#ffffff",
