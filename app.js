@@ -68,7 +68,56 @@
       this.darkThemeDetector = typeof window.matchMedia != 'undefined' ? window.matchMedia('(prefers-color-scheme: dark)') : { matches: false, addEventListener: function (e, c, u) { } };
       this.darkTheme = this.darkThemeDetector.matches
 
+      this.isPWA = function() {
+          const isStandaloneIOS = window.navigator.standalone === true; // iOS
+          const isStandalone = window.matchMedia('(display-mode: standalone)').matches; // others
+          return isStandalone || isStandaloneIOS;
+      }
+
+      this.notifierContainer = null
+
       this.init()
+    }
+
+    showNotifier(message, type, duration) {
+        if (!this.notifierContainer) {
+            this.notifierContainer = document.createElement('div');
+            this.notifierContainer.className = 'notifier-container';
+            document.body.appendChild(this.notifierContainer);
+        }
+
+        // SVG Icons for success and error states
+        var icons = {
+            success: '<svg class="notifier-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
+            error: '<svg class="notifier-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>'
+        };
+
+        var notifier = document.createElement('div');
+        var notifierType = (type === 'success' || type === 'error') ? type : 'success';
+        
+        notifier.className = 'notifier ' + notifierType;
+        notifier.innerHTML = icons[notifierType] + '<span>' + message + '</span>';
+
+        this.notifierContainer.appendChild(notifier);
+
+        // Trigger the show animation
+        setTimeout(function() {
+            notifier.classList.add('show');
+        }, 10); // Small delay to allow CSS transition
+
+        // Set timeout to hide and remove the notifier
+        var hideTimeout = duration || 3000;
+        setTimeout(function() {
+            notifier.classList.remove('show');
+            notifier.classList.add('hide');
+            
+            // Remove the element from DOM after transition ends
+            setTimeout(function() {
+                if (notifier.parentNode) {
+                    notifier.parentNode.removeChild(notifier);
+                }
+            }, 500); // Should match CSS transition duration
+        }, hideTimeout);
     }
 
     async init() {
@@ -227,8 +276,45 @@
       if ("serviceWorker" in navigator) {
         navigator.serviceWorker
           .register("/sw.js")
-          .then((registration) => {
+          .then(async(registration) => {
             console.log("SW registered:", registration)
+
+            // Wait until this page is controlled by a SW
+            await new Promise(resolve => {
+              if (navigator.serviceWorker.controller) {
+                resolve();
+              } else {
+                navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), { once: true });
+              }
+            });
+
+            navigator.serviceWorker.addEventListener('message', (event) => { console.log(event);
+              if (event.data && event.data.type === 'UPDATE_AVAILABLE' && event.data.version) {
+                this.showNotifier('Update available. New version: '+event.data.version, 'success', 1500);
+              }
+              if (event.data && event.data.type === 'FORCE_RELOAD') {
+                if(this.isPWA()){
+                  this.showNotifier('Please exit the app & then re-open to update', 'success', 6000);
+                }else{
+                  this.showNotifier('Please reload/refresh the tab to update', 'success', 6000);
+                }
+              }
+            });
+            
+            navigator.serviceWorker.controller.postMessage({
+                type: 'CHECK_VERSION'
+            });
+
+            if (navigator.storage && navigator.storage.persist) {
+              navigator.storage.persist().then(function(granted){
+                if (granted) {
+                  console.log("Storage will not be cleared except by user action");
+                } else {
+                  console.log("Storage may be cleared by the browser under pressure");
+                }
+              });
+            }
+
           })
           .catch((error) => {
             console.log("SW registration failed:", error)
@@ -275,6 +361,9 @@
     initSpeedometer() {
       this.canvas = this.doms.speedometer
       this.ctx = this.canvas.getContext("2d")
+      // Remove default background set by CSS classes if any, to keep it clean like Speedtest
+      this.canvas.style.background = 'transparent';
+      this.canvas.style.boxShadow = 'none';
       this.drawSpeedometer(0)
     }
 
@@ -283,105 +372,141 @@
       const ctx = this.ctx
       const centerX = canvas.width / 2
       const centerY = canvas.height / 2
-      const radius = 140
+      const radius = 130
 
       // Clear canvas
       ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-      // Draw background circle
-      ctx.beginPath()
-      ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI)
-      //ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--bg-card")
-      ctx.fillStyle = '#1e293b';
-      ctx.fill()
-      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--border-color")
-      ctx.lineWidth = 2
-      ctx.stroke()
+      // Speedtest maps speed logarithmically to give visual space to lower speeds
+      const marks = [0, 1, 5, 10, 20, 50, 100, 300, 500, 1000];
+      let normalizedSpeed = 0;
 
-      const maxSpeed = 1000
-      const normalizedSpeed = Math.min(speed / maxSpeed, 1)
-      const startAngle = 0.75 * Math.PI; // 135 degrees
-      const endAngle = 2.25 * Math.PI;   // 405 degrees (1.5 PI sweep from start)
-      const totalAngle = endAngle - startAngle;
-      const currentAngle = startAngle + normalizedSpeed * totalAngle;
-      //const endAngle = -Math.PI + normalizedSpeed * Math.PI
-
-      // Draw speed arc background
-      ctx.beginPath()
-      //ctx.arc(centerX, centerY, radius - 20, -Math.PI, 0)
-      ctx.arc(centerX, centerY, radius - 20, startAngle, endAngle);
-      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--arc-bg")
-      ctx.lineWidth = 20
-      ctx.lineCap = "round"
-      ctx.stroke()
-
-      // Draw speed arc
-      ctx.beginPath()
-      //ctx.arc(centerX, centerY, radius - 20, -Math.PI, endAngle)
-      ctx.arc(centerX, centerY, radius - 20, startAngle, currentAngle);
-
-      // Create gradient
-      const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0)
-      gradient.addColorStop(0, "#df0000")
-      gradient.addColorStop(0, "#df0000")
-      gradient.addColorStop(0.1, "#fa5117")
-      gradient.addColorStop(0.3, "#e7d593")
-      gradient.addColorStop(0.5, "#b8ba42")
-      gradient.addColorStop(0.6, "#76a51d")
-      gradient.addColorStop(0.7, "#158132")
-      gradient.addColorStop(1, "#6366f1")
-      gradient.addColorStop(1, "#6366f1")
-
-      ctx.strokeStyle = gradient
-      ctx.lineWidth = 20
-      ctx.lineCap = "round"
-      ctx.stroke()
-
-      // Draw speed markers
-      const numMarks = 10;
-      for (let i = 0; i <= numMarks; i++) {
-        const angle = startAngle + (i / 10) * totalAngle
-        const x1 = centerX + (radius - 35) * Math.cos(angle)
-        const y1 = centerY + (radius - 35) * Math.sin(angle)
-        const x2 = centerX + (radius - 45) * Math.cos(angle)
-        const y2 = centerY + (radius - 45) * Math.sin(angle)
-
-        ctx.beginPath()
-        ctx.moveTo(x1, y1)
-        ctx.lineTo(x2, y2)
-        ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--spd-marker")
-        ctx.lineWidth = 2
-        ctx.stroke()
-
-        // Draw speed labels
-        if (i % 2 === 0) {
-          const labelX = centerX + (radius - 55) * Math.cos(angle)
-          const labelY = centerY + (radius - 55) * Math.sin(angle)
-
-          ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text-secondary")
-          ctx.font = "12px Inter"
-          ctx.textAlign = "center"
-          ctx.textBaseline = "middle"
-          ctx.fillText((i * (maxSpeed / numMarks)).toString(), labelX, labelY)
+      if (speed >= 1000) {
+        normalizedSpeed = 1;
+      } else if (speed <= 0) {
+        normalizedSpeed = 0;
+      } else {
+        // Find which segment the speed falls into and interpolate
+        for (let i = 0; i < marks.length - 1; i++) {
+          if (speed >= marks[i] && speed <= marks[i+1]) {
+            const segmentFraction = (speed - marks[i]) / (marks[i+1] - marks[i]);
+            normalizedSpeed = (i + segmentFraction) / (marks.length - 1);
+            break;
+          }
         }
       }
 
-      // Draw needle
-      const needleAngle = startAngle + normalizedSpeed * totalAngle
-      const needleLength = radius - 70
+      const startAngle = 0.75 * Math.PI;
+      const endAngle = 2.25 * Math.PI;
+      const totalAngle = endAngle - startAngle;
+      const currentAngle = startAngle + normalizedSpeed * totalAngle;
 
+      // 1. Draw Gauge Background Track
       ctx.beginPath()
-      ctx.moveTo(centerX, centerY)
-      ctx.lineTo(centerX + needleLength * Math.cos(needleAngle), centerY + needleLength * Math.sin(needleAngle))
-      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--spd-needle")
-      ctx.lineWidth = 3
+      ctx.arc(centerX, centerY, radius - 20, startAngle, endAngle);
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--border-color-translucent") || "rgba(100, 116, 139, 0.2)"
+      ctx.lineWidth = 18
       ctx.lineCap = "round"
       ctx.stroke()
 
-      // Draw center circle
+      // 2. Draw Ticks (Minor and Major)
+      for (let i = 0; i < marks.length; i++) {
+        const angle = startAngle + (i / (marks.length - 1)) * totalAngle;
+        
+        // Minor ticks between major marks
+        if (i < marks.length - 1) {
+          for (let j = 1; j < 5; j++) {
+            const minorAngle = angle + (j / 5) * (totalAngle / (marks.length - 1));
+            ctx.beginPath()
+            ctx.moveTo(centerX + (radius - 36) * Math.cos(minorAngle), centerY + (radius - 36) * Math.sin(minorAngle))
+            ctx.lineTo(centerX + (radius - 42) * Math.cos(minorAngle), centerY + (radius - 42) * Math.sin(minorAngle))
+            ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--text-tertiary") || "#94a3b8"
+            ctx.lineWidth = 1.5
+            ctx.stroke()
+          }
+        }
+
+        // Major ticks
+        ctx.beginPath()
+        ctx.moveTo(centerX + (radius - 33) * Math.cos(angle), centerY + (radius - 33) * Math.sin(angle))
+        ctx.lineTo(centerX + (radius - 45) * Math.cos(angle), centerY + (radius - 45) * Math.sin(angle))
+        ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--text-secondary") || "#64748b"
+        ctx.lineWidth = 3
+        ctx.stroke()
+
+        // Labels
+        const labelX = centerX + (radius - 60) * Math.cos(angle)
+        const labelY = centerY + (radius - 60) * Math.sin(angle)
+        ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--text-secondary") || "#64748b"
+        ctx.font = "600 11px Inter"
+        ctx.textAlign = "center"
+        ctx.textBaseline = "middle"
+        ctx.fillText(marks[i].toString(), labelX, labelY)
+      }
+
+      // 3. Draw Active Progress Arc
+      if (speed > 0) {
+        ctx.beginPath()
+        ctx.arc(centerX, centerY, radius - 20, startAngle, currentAngle);
+        
+        // Speedtest style gradient (Cyan -> Blue -> Purple)
+        const gradient = ctx.createLinearGradient(0, canvas.height, canvas.width, 0)
+        gradient.addColorStop(0, "#06b6d4") // Cyan
+        gradient.addColorStop(0.5, "#3b82f6") // Blue
+        gradient.addColorStop(1, "#8b5cf6") // Purple
+
+        ctx.strokeStyle = gradient
+        ctx.lineWidth = 18
+        ctx.lineCap = "round"
+        // Add glow effect
+        ctx.shadowBlur = 12
+        ctx.shadowColor = "#3b82f6"
+        ctx.stroke()
+        ctx.shadowBlur = 0 // Reset shadow
+      }
+
+      // 4. Draw Needle
+      const needleAngle = startAngle + normalizedSpeed * totalAngle
+      const needleLength = radius - 30
+
+      ctx.save()
+      ctx.translate(centerX, centerY)
+      ctx.rotate(needleAngle)
+
+      // Needle Glow / Shadow
+      ctx.shadowBlur = 6
+      ctx.shadowColor = "rgba(0, 0, 0, 0.4)"
+
+      // Draw dart-like polygon needle
       ctx.beginPath()
-      ctx.arc(centerX, centerY, 8, 0, 2 * Math.PI)
-      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--spd-center-circle")
+      ctx.moveTo(-6, 0)
+      ctx.lineTo(0, -4)
+      ctx.lineTo(needleLength, 0)
+      ctx.lineTo(0, 4)
+      ctx.closePath()
+      
+      // Gradient for needle body
+      const needleGradient = ctx.createLinearGradient(0, 0, needleLength, 0)
+      needleGradient.addColorStop(0, getComputedStyle(document.documentElement).getPropertyValue("--text-primary") || "#1e293b")
+      needleGradient.addColorStop(1, "#06b6d4")
+      
+      ctx.fillStyle = needleGradient
+      ctx.fill()
+      ctx.restore()
+
+      // 5. Center Cap
+      ctx.beginPath()
+      ctx.arc(centerX, centerY, 10, 0, 2 * Math.PI)
+      ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--bg-card") || "#ffffff"
+      ctx.fill()
+      ctx.lineWidth = 3
+      ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--text-primary") || "#1e293b"
+      ctx.stroke()
+
+      // Inner dot
+      ctx.beginPath()
+      ctx.arc(centerX, centerY, 3, 0, 2 * Math.PI)
+      ctx.fillStyle = "#06b6d4"
       ctx.fill()
     }
 
@@ -1054,7 +1179,7 @@ ${this.testResults.location ? `Location: ${this.testResults.location}` : ""}`
 
       // Browser notification
       if (!this.winFocused && "Notification" in window && Notification.permission === "granted") {
-        new Notification("Broadband SpeedTest", {
+        new Notification("Internet SpeedTest", {
           body: message,
           icon: "./icon_192x192.png",
         })
