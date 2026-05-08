@@ -223,7 +223,7 @@ svg.icon{
   display: flex;
   -ms-flex-align: center;
   align-items: center;
-  padding: 2rem 0;
+  padding: 0;
 }
 
 .speed-test-section {
@@ -895,6 +895,8 @@ html.no-js .modal#disabledJavascript,
     justify-content: center;
     align-items: center;
     align-content: center;
+    padding-top: 2rem;
+    padding-bottom: 2rem;
   }
   .main > .container .speed-test-section{
     flex: 0 0 33.33%;
